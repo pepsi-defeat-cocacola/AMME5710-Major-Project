@@ -1,0 +1,2 @@
+STAGE 4 has been skipped. 
+Originally, STAGE 4 mapped the open and closed state of the eyes and mouth on a 2D character, but we think we can skip this stage and save time, since it is not a necessary condition to enter STAGE 5.

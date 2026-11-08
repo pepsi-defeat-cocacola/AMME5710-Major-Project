@@ -1,0 +1,120 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>视频驱动 VRM 表情（六类嘴型）</title>
+<style>
+body{margin:0;background:#202633;color:#f1f5fa;font:15px system-ui}aside{position:fixed;right:0;top:0;bottom:0;width:325px;padding:18px;overflow:auto;background:#111827}#view{position:fixed;inset:0 365px 0 0}#video{position:fixed;left:12px;bottom:12px;width:30%;max-height:35%;background:#111;z-index:2}canvas{display:block}label{display:block;margin-top:16px}input[type=file]{width:100%;margin-top:6px}input[type=range]{width:100%}button{padding:9px;margin:8px 5px 0 0}p,small{line-height:1.5}#status,#states{white-space:pre-wrap;overflow-wrap:anywhere}#states{background:#202d42;padding:10px}h1{font-size:21px}small{color:#bcc7d9}
+</style>
+<div id="view"></div><video id="video" controls playsinline preload="metadata"></video>
+<aside><h1>视频 → 3D 六类嘴型</h1>
+<label>① VRM 角色<input id="vrmFile" type="file" accept=".vrm"></label>
+<label>② 原始视频<input id="videoFile" type="file" accept="video/*"></label>
+<label>③ expressions.json<input id="timelineFile" type="file" accept=".json"></label>
+<p id="status">正在加载渲染库；若长时间停留，请检查 cdn.jsdelivr.net 网络访问。</p>
+<p id="dataInfo">未加载表情数据。</p>
+<button id="play" disabled>播放 / 暂停</button><button id="restart" disabled>从头播放</button>
+<label><input id="swap" type="checkbox"> 交换左右眼映射（镜像源）</label>
+<small>默认：画面左眼 → 角色右眼；画面右眼 → 角色左眼。左右眼独立驱动。</small>
+<label><input id="smooth" type="checkbox"> 平滑表情过渡（可选）</label>
+<label>嘴型强度 <output id="gainValue">0.70</output><input id="gain" type="range" min="0" max="1" value="0.7" step="0.01"></label>
+<p><small>六类：closed → 闭嘴；a → aa；i → ih；u → ou；e → ee；o → oh。三类：small → aa×0.4，wide → aa×1.0。强度是显示参数，不是预测出的张嘴幅度。</small></p>
+<p id="states">等待原视频与表情数据。</p>
+<button id="front">正面</button><button id="back">背面</button>
+<p><small>用原视频控件暂停或拖动进度。第一遍建议关闭平滑，便于观察分类错误。unknown 或未处理片段回到中性表情。身体和头部保持固定。</small></p>
+</aside>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","@pixiv/three-vrm":"https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.2/lib/three-vrm.module.min.js"}}
+</script>
+<script type="module">
+// 时间轴模块负责标签校验和7个目标权重。Validate labels and build seven weights.
+import {validateTimeline,findRow,expressionTargets,EXPRESSION_NAMES} from './timeline_viseme.mjs';
+const el=id=>document.getElementById(id), status=el('status'), video=el('video');
+try{
+ const THREE=await import('three');
+ const {GLTFLoader}=await import('three/addons/loaders/GLTFLoader.js');
+ const {OrbitControls}=await import('three/addons/controls/OrbitControls.js');
+ const {VRMLoaderPlugin,VRMUtils}=await import('@pixiv/three-vrm');
+ const renderer=new THREE.WebGLRenderer({antialias:true});
+ renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+ renderer.outputColorSpace=THREE.SRGBColorSpace;el('view').appendChild(renderer.domElement);
+ const scene=new THREE.Scene();scene.background=new THREE.Color('#30394c');
+ scene.add(new THREE.HemisphereLight(0xffffff,0x8b94aa,2));
+ const light=new THREE.DirectionalLight(0xffffff,2.5);light.position.set(1,2,3);scene.add(light);
+ const camera=new THREE.PerspectiveCamera(30,1,0.01,100);
+ camera.position.set(0,1.4,1.5);
+ const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;
+ const loader=new GLTFLoader();loader.register(parser=>new VRMLoaderPlugin(parser));
+ let vrm=null,timeline=null,videoURL=null,videoName='',radius=1,weights=Array(EXPRESSION_NAMES.length).fill(0),snap=true;
+ const resize=()=>{const view=el('view');renderer.setSize(view.clientWidth,view.clientHeight);camera.aspect=view.clientWidth/view.clientHeight;camera.updateProjectionMatrix();};
+ window.addEventListener('resize',resize);resize();
+ const setView=sign=>{camera.position.copy(controls.target).add(new THREE.Vector3(0,0,sign*radius));controls.update();};
+ el('front').onclick=()=>setView(1);el('back').onclick=()=>setView(-1);
+ const ready=()=>{const ok=Boolean(vrm&&timeline&&video.readyState>=1);el('play').disabled=!ok;el('restart').disabled=!ok;};
+ function describeData(){
+   el('dataInfo').textContent=timeline?('数据来源：'+timeline.source_video+'\n已处理帧：'+timeline.rows.length+'，完整处理：'+timeline.completed+(videoName&&videoName!==timeline.source_video?'\n注意：所选视频文件名与数据来源不同，请确认是同一个视频。':'')):'未加载表情数据。';
+ }
+ el('vrmFile').onchange=async event=>{
+  const file=event.target.files[0];if(!file)return;
+  el('vrmFile').disabled=true;status.textContent='加载角色中……';
+  try{
+   const gltf=await loader.parseAsync(await file.arrayBuffer(),'');const next=gltf.userData.vrm;
+   if(!next)throw new Error('未找到 VRM 扩展');
+   const names=next.expressionManager.expressions.map(e=>e.expressionName);
+   for(const required of EXPRESSION_NAMES)if(!names.includes(required))throw new Error('模型缺少表情：'+required);
+   if(vrm){scene.remove(vrm.scene);VRMUtils.deepDispose(vrm.scene);}
+   vrm=next;VRMUtils.rotateVRM0(vrm);scene.add(vrm.scene);
+   weights=Array(EXPRESSION_NAMES.length).fill(0);
+   for(const expression of vrm.expressionManager.expressions)vrm.expressionManager.setValue(expression.expressionName,0);
+   vrm.scene.updateMatrixWorld(true);
+   const box=new THREE.Box3().setFromObject(vrm.scene),size=box.getSize(new THREE.Vector3());
+   const head=vrm.humanoid.getNormalizedBoneNode('head');
+   const target=head?head.getWorldPosition(new THREE.Vector3()):box.getCenter(new THREE.Vector3());target.y+=size.y*0.035;
+   controls.target.copy(target);radius=Math.max(size.y*0.85,0.6);setView(1);snap=true;
+   status.textContent='角色已加载：'+file.name+'\n请选择原始视频和 expressions.json。';ready();
+  }catch(error){status.textContent='角色加载失败：'+error.message;console.error(error);}
+  finally{el('vrmFile').disabled=false;}
+ };
+ el('videoFile').onchange=event=>{
+   const file=event.target.files[0];if(!file)return;
+   video.pause();if(videoURL)URL.revokeObjectURL(videoURL);
+   videoURL=URL.createObjectURL(file);videoName=file.name;video.src=videoURL;video.load();snap=true;describeData();ready();
+ };
+ video.addEventListener('loadedmetadata',ready);
+ video.addEventListener('error',()=>{status.textContent='视频无法解码，请用浏览器支持的原始视频格式（如 H.264 MP4）。';ready();});
+ video.addEventListener('seeking',()=>{snap=true;});
+ video.addEventListener('seeked',()=>{snap=true;});
+ el('timelineFile').onchange=async event=>{
+  const file=event.target.files[0];if(!file)return;
+  video.pause();
+  try{timeline=validateTimeline(JSON.parse(await file.text()));snap=true;describeData();ready();}
+  catch(error){timeline=null;el('dataInfo').textContent='数据加载失败：'+error.message;ready();}
+ };
+ const play=async()=>{try{if(video.paused)await video.play();else video.pause();}catch(error){status.textContent='播放失败：'+error.message;}};
+ el('play').onclick=play;
+ el('restart').onclick=async()=>{video.currentTime=0;snap=true;try{await video.play();}catch(error){status.textContent=error.message;}};
+ el('swap').onchange=()=>{snap=true;};el('smooth').onchange=()=>{snap=true;};
+ el('gain').oninput=()=>{el('gainValue').value=Number(el('gain').value).toFixed(2);snap=true;};
+ const clock=new THREE.Clock();
+ renderer.setAnimationLoop(()=>{
+  const dt=Math.min(clock.getDelta(),0.05),row=findRow(timeline,video.currentTime);
+  const targets=expressionTargets(row,el('swap').checked,Number(el('gain').value));
+  // 平滑只改变显示权重，不修改原始分类数据。跳转进度时直接对齐目标。
+  // unknown/裁剪失效立即归零，避免失效时仍残留先前的闭眼或张嘴。
+  // Reset invalid channels immediately instead of retaining a fading stale state.
+  const alpha=(!el('smooth').checked||snap||video.paused)?1:1-Math.exp(-dt/0.05);
+  const eyeSources=el('swap').checked?['screen_left_eye','screen_right_eye']:['screen_right_eye','screen_left_eye'];
+  for(let i=0;i<2;i++)if(!row||row.head_tracking_ok===false||row[eyeSources[i]]==='unknown'||row[eyeSources[i]+'_crop_valid']===false)weights[i]=0;
+  if(!row||row.head_tracking_ok===false||row.mouth==='unknown'||row.mouth_crop_valid===false)for(let i=2;i<weights.length;i++)weights[i]=0;
+  weights=weights.map((w,i)=>w+alpha*(targets[i]-w));snap=false;
+  if(vrm){
+    const manager=vrm.expressionManager;
+    // 每帧设置左右眼和全部五种嘴型；平滑时允许旧嘴型淡出、新嘴型淡入。
+    // Update every weight each frame; smoothing cross-fades old and new shapes.
+    EXPRESSION_NAMES.forEach((name,index)=>manager.setValue(name,weights[index]));
+    vrm.update(dt);
+  }
+  el('states').textContent=row?('t='+video.currentTime.toFixed(2)+' s | frame '+row.frame_index+'\n画面左眼：'+row.screen_left_eye+'\n画面右眼：'+row.screen_right_eye+'\n嘴巴：'+row.mouth+'\n头部跟踪：'+row.head_tracking_ok):'当前时间没有已处理数据，角色回到中性表情。';
+  controls.update();renderer.render(scene,camera);
+ });
+ status.textContent='渲染库已就绪。请依次选择角色、原始视频和表情数据。';
+}catch(error){status.textContent='启动失败：'+error.message;console.error(error);}
+</script></html>

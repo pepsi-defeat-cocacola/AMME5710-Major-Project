@@ -1,0 +1,13 @@
+              precision    recall  f1-score   support
+
+        open     0.7027    1.0000    0.8254       130
+      closed     1.0000    0.2857    0.4444        77
+
+    accuracy                         0.7343       207
+   macro avg     0.8514    0.6429    0.6349       207
+weighted avg     0.8133    0.7343    0.6837       207
+
+Confusion matrix [open, closed]:
+[[130   0]
+ [ 55  22]]
+Always-open accuracy: 0.628019

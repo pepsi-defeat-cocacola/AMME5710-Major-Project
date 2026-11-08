@@ -1,0 +1,118 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video to VRM: Six Mouth States</title>
+<style>
+body{margin:0;background:#202633;color:#f1f5fa;font:15px system-ui}aside{position:fixed;right:0;top:0;bottom:0;width:325px;padding:18px;overflow:auto;background:#111827}#view{position:fixed;inset:0 365px 0 0}#video{position:fixed;left:12px;bottom:12px;width:30%;max-height:35%;background:#111;z-index:2}canvas{display:block}label{display:block;margin-top:16px}input[type=file]{width:100%;margin-top:6px}input[type=range]{width:100%}button{padding:9px;margin:8px 5px 0 0}p,small{line-height:1.5}#status,#states{white-space:pre-wrap;overflow-wrap:anywhere}#states{background:#202d42;padding:10px}h1{font-size:21px}small{color:#bcc7d9}
+</style>
+<div id="view"></div><video id="video" controls playsinline preload="metadata"></video>
+<aside><h1>Video to VRM</h1>
+<label>① VRM avatar<input id="vrmFile" type="file" accept=".vrm"></label>
+<label>② Source video<input id="videoFile" type="file" accept="video/*"></label>
+<label>③ expressions.json<input id="timelineFile" type="file" accept=".json"></label>
+<p id="status">Loading the 3D viewer. If it takes too long, check that you can reach cdn.jsdelivr.net.</p>
+<p id="dataInfo">No expression data loaded.</p>
+<button id="play" disabled>Play / Pause</button><button id="restart" disabled>Restart</button>
+<label><input id="swap" type="checkbox"> Swap left and right eyes (mirrored video)</label>
+<small>By default, the left eye on screen controls the avatar’s right eye, and the right eye on screen controls its left eye. Each eye moves independently.</small>
+<label><input id="smooth" type="checkbox"> Smooth expression changes (optional)</label>
+<label>Mouth expression strength <output id="gainValue">0.70</output><input id="gain" type="range" min="0" max="1" value="0.7" step="0.01"></label>
+<p><small>closed → mouth closed, a → aa, i → ih, u → ou, e → ee, o → oh. The slider changes how strongly the avatar shows each mouth shape. It does not measure how wide the person opens their mouth.</small></p>
+<p id="states">Waiting for the source video and expression data.</p>
+<button id="front">Front view</button><button id="back">Back view</button>
+<p><small>Use the video controls to pause or skip to a different time. Turn smoothing off on the first run to spot prediction errors. Unknown states and unprocessed segments use a neutral expression. The head and body stay fixed.</small></p>
+</aside>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","@pixiv/three-vrm":"https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.2/lib/three-vrm.module.min.js"}}
+</script>
+<script type="module">
+// The timeline module checks labels and calculates seven target weights.
+import {validateTimeline,findRow,expressionTargets,EXPRESSION_NAMES} from './timeline_viseme.mjs';
+const el=id=>document.getElementById(id), status=el('status'), video=el('video');
+try{
+ const THREE=await import('three');
+ const {GLTFLoader}=await import('three/addons/loaders/GLTFLoader.js');
+ const {OrbitControls}=await import('three/addons/controls/OrbitControls.js');
+ const {VRMLoaderPlugin,VRMUtils}=await import('@pixiv/three-vrm');
+ const renderer=new THREE.WebGLRenderer({antialias:true});
+ renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+ renderer.outputColorSpace=THREE.SRGBColorSpace;el('view').appendChild(renderer.domElement);
+ const scene=new THREE.Scene();scene.background=new THREE.Color('#30394c');
+ scene.add(new THREE.HemisphereLight(0xffffff,0x8b94aa,2));
+ const light=new THREE.DirectionalLight(0xffffff,2.5);light.position.set(1,2,3);scene.add(light);
+ const camera=new THREE.PerspectiveCamera(30,1,0.01,100);
+ camera.position.set(0,1.4,1.5);
+ const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;
+ const loader=new GLTFLoader();loader.register(parser=>new VRMLoaderPlugin(parser));
+ let vrm=null,timeline=null,videoURL=null,videoName='',radius=1,weights=Array(EXPRESSION_NAMES.length).fill(0),snap=true;
+ const resize=()=>{const view=el('view');renderer.setSize(view.clientWidth,view.clientHeight);camera.aspect=view.clientWidth/view.clientHeight;camera.updateProjectionMatrix();};
+ window.addEventListener('resize',resize);resize();
+ const setView=sign=>{camera.position.copy(controls.target).add(new THREE.Vector3(0,0,sign*radius));controls.update();};
+ el('front').onclick=()=>setView(1);el('back').onclick=()=>setView(-1);
+ const ready=()=>{const ok=Boolean(vrm&&timeline&&video.readyState>=1);el('play').disabled=!ok;el('restart').disabled=!ok;};
+ function describeData(){
+   el('dataInfo').textContent=timeline?('Source video: '+timeline.source_video+'\nProcessed frames: '+timeline.rows.length+', processing complete: '+timeline.completed+(videoName&&videoName!==timeline.source_video?'\nThe selected video name does not match the source. Check that you selected the same video.':'')):'No expression data loaded.';
+ }
+ el('vrmFile').onchange=async event=>{
+  const file=event.target.files[0];if(!file)return;
+  el('vrmFile').disabled=true;status.textContent='Loading avatar...';
+  try{
+   const gltf=await loader.parseAsync(await file.arrayBuffer(),'');const next=gltf.userData.vrm;
+   if(!next)throw new Error('VRM extension not found.');
+   const names=next.expressionManager.expressions.map(e=>e.expressionName);
+   for(const required of EXPRESSION_NAMES)if(!names.includes(required))throw new Error('Avatar is missing this expression: '+required);
+   if(vrm){scene.remove(vrm.scene);VRMUtils.deepDispose(vrm.scene);}
+   vrm=next;VRMUtils.rotateVRM0(vrm);scene.add(vrm.scene);
+   weights=Array(EXPRESSION_NAMES.length).fill(0);
+   for(const expression of vrm.expressionManager.expressions)vrm.expressionManager.setValue(expression.expressionName,0);
+   vrm.scene.updateMatrixWorld(true);
+   const box=new THREE.Box3().setFromObject(vrm.scene),size=box.getSize(new THREE.Vector3());
+   const head=vrm.humanoid.getNormalizedBoneNode('head');
+   const target=head?head.getWorldPosition(new THREE.Vector3()):box.getCenter(new THREE.Vector3());target.y+=size.y*0.035;
+   controls.target.copy(target);radius=Math.max(size.y*0.85,0.6);setView(1);snap=true;
+   status.textContent='Avatar loaded: '+file.name+'\nSelect the source video and expressions.json.';ready();
+  }catch(error){status.textContent='Could not load the avatar: '+error.message;console.error(error);}
+  finally{el('vrmFile').disabled=false;}
+ };
+ el('videoFile').onchange=event=>{
+   const file=event.target.files[0];if(!file)return;
+   video.pause();if(videoURL)URL.revokeObjectURL(videoURL);
+   videoURL=URL.createObjectURL(file);videoName=file.name;video.src=videoURL;video.load();snap=true;describeData();ready();
+ };
+ video.addEventListener('loadedmetadata',ready);
+ video.addEventListener('error',()=>{status.textContent='The browser cannot decode this video. Use a supported format, such as H.264 MP4.';ready();});
+ video.addEventListener('seeking',()=>{snap=true;});
+ video.addEventListener('seeked',()=>{snap=true;});
+ el('timelineFile').onchange=async event=>{
+  const file=event.target.files[0];if(!file)return;
+  video.pause();
+  try{timeline=validateTimeline(JSON.parse(await file.text()));snap=true;describeData();ready();}
+  catch(error){timeline=null;el('dataInfo').textContent='Could not load the expression data: '+error.message;ready();}
+ };
+ const play=async()=>{try{if(video.paused)await video.play();else video.pause();}catch(error){status.textContent='Could not play the video: '+error.message;}};
+ el('play').onclick=play;
+ el('restart').onclick=async()=>{video.currentTime=0;snap=true;try{await video.play();}catch(error){status.textContent=error.message;}};
+ el('swap').onchange=()=>{snap=true;};el('smooth').onchange=()=>{snap=true;};
+ el('gain').oninput=()=>{el('gainValue').value=Number(el('gain').value).toFixed(2);snap=true;};
+ const clock=new THREE.Clock();
+ renderer.setAnimationLoop(()=>{
+  const dt=Math.min(clock.getDelta(),0.05),row=findRow(timeline,video.currentTime);
+  const targets=expressionTargets(row,el('swap').checked,Number(el('gain').value));
+  // Smoothing only changes the display weights. When seeking, use the target weights right away.
+  // Clear unknown or invalid expressions right away so the previous state does not linger.
+  const alpha=(!el('smooth').checked||snap||video.paused)?1:1-Math.exp(-dt/0.05);
+  const eyeSources=el('swap').checked?['screen_left_eye','screen_right_eye']:['screen_right_eye','screen_left_eye'];
+  for(let i=0;i<2;i++)if(!row||row.head_tracking_ok===false||row[eyeSources[i]]==='unknown'||row[eyeSources[i]+'_crop_valid']===false)weights[i]=0;
+  if(!row||row.head_tracking_ok===false||row.mouth==='unknown'||row.mouth_crop_valid===false)for(let i=2;i<weights.length;i++)weights[i]=0;
+  weights=weights.map((w,i)=>w+alpha*(targets[i]-w));snap=false;
+  if(vrm){
+    const manager=vrm.expressionManager;
+    // Update both eyes and all five mouth shapes each frame. Smoothing blends between shapes.
+    EXPRESSION_NAMES.forEach((name,index)=>manager.setValue(name,weights[index]));
+    vrm.update(dt);
+  }
+  el('states').textContent=row?('t='+video.currentTime.toFixed(2)+' s | frame '+row.frame_index+'\nLeft eye on screen: '+row.screen_left_eye+'\nRight eye on screen: '+row.screen_right_eye+'\nMouth: '+row.mouth+'\nHead tracking: '+row.head_tracking_ok):'No predictions at this time. The avatar uses a neutral expression.';
+  controls.update();renderer.render(scene,camera);
+ });
+ status.textContent='The 3D viewer is ready. Select the avatar, source video and expression data in that order.';
+}catch(error){status.textContent='Could not start the viewer: '+error.message;console.error(error);}
+</script></html>

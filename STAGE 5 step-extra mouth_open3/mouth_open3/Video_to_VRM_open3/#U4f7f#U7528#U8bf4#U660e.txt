@@ -1,0 +1,27 @@
+﻿使用说明：六类嘴型Video_to_VRM
+
+文件
+Video_to_VRM.ipynb：保持原来的8个单元格及顺序，只替换函数单元格和预览服务单元格的代码，更新开头说明，清除旧运行输出。
+video_driver_viseme.html：新版网页播放器。
+timeline_viseme.mjs：六类映射与时间同步模块。
+cell_3.py、cell_6.py：需要整格替换的代码副本，仅供复制，不需要执行py文件。
+tests.mjs：可独立检查映射逻辑的Node测试，不需要在Windows执行。
+
+步骤
+1. 将notebook、video_driver_viseme.html、timeline_viseme.mjs放在同一工作目录，或只将后两个文件放在现有notebook的工作目录，再替换完整函数格和服务格。
+2. 配置格沿用你上传的路径。特别注意MOUTH_MODEL_PATH应指向这次修正标签后重新训练得到的mouth_viseme_hog_svm.pkl；压缩包没有你的模型，不能自动找到Windows上的最新输出目录。
+3. 从导入格开始依次运行。模型读取格允许眼睛open/closed，嘴巴closed/a/i/u/e/o。仍使用原跟踪与推理循环、原CSV/JSON格式。
+4. 视频处理完，运行预览格。浏览器依次选择VRM、同一个原始视频、新生成的expressions.json。不要误选旧的JSON或带面板的debug视频。
+5. 默认平滑关闭。确认六类映射后勾选平滑表情过渡。嘴型强度默认0.7，调节只改变显示，不是测得的嘴部开口程度。
+
+对应
+closed：aa/ih/ou/ee/oh全部目标权重0。
+a：aa；i：ih；u：ou；e：ee；o：oh。
+每帧都设置全部五种嘴型。平滑打开时，旧嘴型淡出、新嘴型淡入；拖动视频进度或暂停时直接对齐当前目标。unknown、裁剪失效或头部失效时相应通道立即回中性。
+眼睛仍独立控制blinkLeft/blinkRight；镜像视频可交换左右映射。
+
+范围与验证
+保留原有光流、RANSAC、补点、眼部模板和固定嘴部ROI；此次不修复转头造成的ROI误差，也不重新训练模型。头部和身体仍固定。
+沿用原Three.js与three-vrm作为渲染层，不加入新的视觉模型。
+保留schema_version=1的原JSON格式，新网页接受六类标签；旧二分类JSON的open兼容映射为aa。
+已检查Python语法、网页JS语法、六类映射、左右眼交换、时间轴边界、无效状态与淡入淡出逻辑。没有你的实际pkl，因此未在此环境运行OpenCV推理，也未声称完成真实VRM浏览器画面验证。

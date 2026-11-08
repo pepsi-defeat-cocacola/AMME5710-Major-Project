@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {validateTimeline,findRow,expressionTargets} from './timeline.mjs';
+const row=(i,left,right,mouth)=>({frame_index:i,time_s:i/25,screen_left_eye:left,screen_right_eye:right,mouth});
+const d=validateTimeline({schema_version:1,fps:25,rows:[row(0,'closed','open','closed'),row(1,'open','closed','open'),row(2,'unknown','unknown','unknown')]});
+assert.equal(findRow(d,0.039).frame_index,0);
+assert.equal(findRow(d,0.04).frame_index,1);
+assert.equal(findRow(d,0.12),null);
+assert.equal(findRow(d,-1),null);
+assert.deepEqual(expressionTargets(d.rows[0]),[0,1,0]);
+assert.deepEqual(expressionTargets(d.rows[0],true),[1,0,0]);
+assert.deepEqual(expressionTargets(d.rows[1],false,.7),[1,0,.7]);
+assert.deepEqual(expressionTargets(d.rows[2]),[0,0,0]);
+assert.deepEqual(expressionTargets(null),[0,0,0]);
+assert.throws(()=>validateTimeline({...d,rows:[d.rows[1],d.rows[0]]}));
+console.log('Passed: timing boundaries, seek lookup, left/right mapping, mouth gain, unknown and invalid timeline.');

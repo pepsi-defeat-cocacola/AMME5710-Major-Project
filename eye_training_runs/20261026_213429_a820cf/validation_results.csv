@@ -1,0 +1,13 @@
+﻿kernel,C,gamma,class_weight,val_accuracy,val_macro_f1,val_closed_precision,val_closed_recall,val_closed_f1
+linear,0.1,scale,,1.0,1.0,1.0,1.0,1.0
+linear,0.1,scale,balanced,1.0,1.0,1.0,1.0,1.0
+linear,1.0,scale,,1.0,1.0,1.0,1.0,1.0
+linear,1.0,scale,balanced,1.0,1.0,1.0,1.0,1.0
+linear,10.0,scale,,1.0,1.0,1.0,1.0,1.0
+linear,10.0,scale,balanced,1.0,1.0,1.0,1.0,1.0
+rbf,0.1,scale,,1.0,1.0,1.0,1.0,1.0
+rbf,0.1,scale,balanced,1.0,1.0,1.0,1.0,1.0
+rbf,1.0,scale,,1.0,1.0,1.0,1.0,1.0
+rbf,1.0,scale,balanced,1.0,1.0,1.0,1.0,1.0
+rbf,10.0,scale,,1.0,1.0,1.0,1.0,1.0
+rbf,10.0,scale,balanced,1.0,1.0,1.0,1.0,1.0

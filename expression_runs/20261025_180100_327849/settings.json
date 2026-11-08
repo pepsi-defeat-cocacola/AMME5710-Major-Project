@@ -1,0 +1,31 @@
+{
+  "eye_model": "C:\\Users\\user\\Desktop\\M2\\Computer Vision and Image Processing\\Major project\\eye_training_runs\\20261024_134950_ab806e\\eye_hog_svm.pkl",
+  "mouth_model": "C:\\Users\\user\\Desktop\\M2\\Computer Vision and Image Processing\\Major project\\mouth_training_runs\\20261025_051126_f48f40\\mouth_hog_svm.pkl",
+  "initialization": "manual head and regions",
+  "mouth_localization": "fixed head-aligned ROI",
+  "eye_localization": "initial template SSD with head fallback",
+  "fps": 24.734422070715077,
+  "timestamp": "frame_index / fps; assumes constant frame rate",
+  "feature_params": {
+    "maxCorners": 150,
+    "qualityLevel": 0.01,
+    "minDistance": 7,
+    "blockSize": 7
+  },
+  "lk_params": {
+    "winSize": [
+      21,
+      21
+    ],
+    "maxLevel": 3,
+    "criteria": [
+      3,
+      30,
+      0.01
+    ]
+  },
+  "fb_threshold": 1.5,
+  "ransac_threshold": 3.0,
+  "search_margin": 0.35,
+  "match_threshold": 0.15
+}
